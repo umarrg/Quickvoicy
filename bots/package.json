@@ -1,0 +1,27 @@
+{
+  "name": "quickvoicy-bots",
+  "version": "1.0.0",
+  "description": "Telegram and Discord bots for Quickvoicy",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js",
+    "telegram": "node telegram-bot.js",
+    "discord": "node discord-bot.js"
+  },
+  "dependencies": {
+    "@getalby/sdk": "^3.2.0",
+    "@noble/secp256k1": "^2.0.0",
+    "axios": "^1.6.0",
+    "discord.js": "^14.14.1",
+    "dotenv": "^16.3.1",
+    "jspdf": "^2.5.1",
+    "node-telegram-bot-api": "^0.64.0",
+    "qrcode": "^1.5.3",
+    "sqlite3": "^5.1.6",
+    "uuid": "^9.0.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  }
+}

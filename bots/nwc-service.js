@@ -1,30 +1,30 @@
-const { nwc } = require('@getalby/sdk');
-const { generatePrivateKey, bytesToHex } = require('@noble/secp256k1');
+import 'websocket-polyfill';
+import { nwc } from '@getalby/sdk';
+import * as crypto from 'crypto';
 
 class NWCService {
     constructor(nwcUrl) {
         const url = new URL(nwcUrl);
-        const walletPubkey = url.searchParams.get('pubkey');
-        const relay = url.searchParams.get('relay');
-        const secret = url.searchParams.get('secret');
+        const walletPubkey = url.hostname;
+        const searchParams = new URLSearchParams(url.search);
+        const relayUrl = searchParams.get('relay');
 
-        if (!walletPubkey || !relay) {
-            throw new Error('Invalid NWC URL');
+        if (!walletPubkey || !relayUrl) {
+            throw new Error('Invalid NWC URL: missing pubkey or relay');
         }
 
         this.client = new nwc.NWCClient({
-            relay,
-            secret: secret || bytesToHex(generatePrivateKey()),
-            walletPubkey,
+            nostrWalletConnectUrl: nwcUrl
         });
     }
 
     async connect() {
-        await this.client.connect();
+        // NWC client handles connection internally
+        return true;
     }
 
     async disconnect() {
-        await this.client.disconnect();
+        this.client.close();
     }
 
     async createInvoice(amount, description) {
@@ -47,4 +47,4 @@ class NWCService {
     }
 }
 
-module.exports = NWCService;
+export default NWCService;

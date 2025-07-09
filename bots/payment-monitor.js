@@ -1,5 +1,5 @@
-const db = require('./db');
-const NWCService = require('./nwc-service');
+import db from './db.js';
+import NWCService from './nwc-service.js';
 
 class PaymentMonitor {
     constructor() {

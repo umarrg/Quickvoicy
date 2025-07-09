@@ -1,52 +1,32 @@
-require('dotenv').config();
-const { Client, GatewayIntentBits, EmbedBuilder, AttachmentBuilder } = require('discord.js');
-const { v4: uuidv4 } = require('uuid');
-const db = require('./db');
-const NWCService = require('./nwc-service');
-const PDFService = require('./pdf-service');
+// discord-bot.js - Quickvoicy Bot with Sapphire Framework (Single File)
+import 'dotenv/config';
+import { SapphireClient } from '@sapphire/framework';
+import { GatewayIntentBits, ActivityType, EmbedBuilder, AttachmentBuilder } from 'discord.js';
+import { v4 as uuidv4 } from 'uuid';
+import db from './db.js';
+import NWCService from './nwc-service.js';
+import PDFService from './pdf-service.js';
 
-const client = new Client({
+// ===== CLIENT SETUP =====
+const client = new SapphireClient({
+    defaultPrefix: '/',
     intents: [
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.MessageContent,
         GatewayIntentBits.DirectMessages
-    ]
+    ],
+    loadMessageCommandListeners: false, // Disable auto-loading
+    loadApplicationCommandRegistriesListeners: false,
+    loadDefaultErrorListeners: false
 });
 
 client.once('ready', () => {
     console.log(`Discord bot logged in as ${client.user.tag}`);
-    client.user.setActivity('⚡ /help for commands', { type: 'WATCHING' });
+    client.user.setActivity('⚡ /help for commands', { type: ActivityType.Watching });
 });
 
-client.on('messageCreate', async (message) => {
-    if (message.author.bot) return;
-    if (!message.content.startsWith('/')) return;
-
-    const args = message.content.slice(1).trim().split(/ +/);
-    const command = args.shift().toLowerCase();
-
-    switch (command) {
-        case 'start':
-            await handleStart(message);
-            break;
-        case 'connect':
-            await handleConnect(message, args);
-            break;
-        case 'new':
-            await handleNew(message, args);
-            break;
-        case 'invoices':
-            await handleInvoices(message);
-            break;
-        case 'stats':
-            await handleStats(message);
-            break;
-        case 'help':
-            await handleHelp(message);
-            break;
-    }
-});
+// ===== COMMAND HANDLERS =====
 
 async function handleStart(message) {
     const userId = message.author.id;
@@ -69,7 +49,7 @@ async function handleStart(message) {
         )
         .setTimestamp();
 
-    await message.reply({ embeds: [embed] });
+    return message.reply({ embeds: [embed] });
 }
 
 async function handleConnect(message, args) {
@@ -77,8 +57,7 @@ async function handleConnect(message, args) {
     const nwcUrl = args.join(' ');
 
     if (!nwcUrl) {
-        await message.reply('❌ Please provide NWC URL: `/connect <nwc_url>`');
-        return;
+        return message.reply('❌ Please provide NWC URL: `/connect <nwc_url>`');
     }
 
     try {
@@ -89,11 +68,13 @@ async function handleConnect(message, args) {
 
         // Get user and update NWC URL
         const user = await db.getUser('discord', userId);
+        console.log(">>>>>>", user)
         await db.updateUserNWC(user.id, nwcUrl);
 
-        await message.reply('✅ Wallet connected successfully! You can now create invoices.');
+        return message.reply('✅ Wallet connected successfully! You can now create invoices.');
     } catch (error) {
-        await message.reply('❌ Invalid NWC URL. Please check and try again.');
+        client.logger.error('Connect command error:', error);
+        return message.reply('❌ Invalid NWC URL. Please check and try again.');
     }
 }
 
@@ -105,8 +86,7 @@ async function handleNew(message, args) {
     const match = commandText.match(/(\d+)\s+"(.+)"/);
 
     if (!match) {
-        await message.reply('❌ Invalid format. Use: `/new <amount> "<description>"`');
-        return;
+        return message.reply('❌ Invalid format. Use: `/new <amount> "<description>"`');
     }
 
     const amount = parseInt(match[1]);
@@ -116,73 +96,106 @@ async function handleNew(message, args) {
         // Get user
         const user = await db.getUser('discord', userId);
         if (!user || !user.nwc_url) {
-            await message.reply('❌ Please connect your wallet first using `/connect` command.');
-            return;
+            return message.reply('❌ Please connect your wallet first using `/connect` command.');
         }
 
-        // Ask for client details
-        await message.reply('Please provide client details in this format:\n`<client_name> | <client_email>`');
+        // Ask for client details (optional)
+        await message.reply('Please provide client details (optional):\n' +
+            '**Format:** `<client_name> | <client_email> | <custom_field1> | <custom_field2>...`\n' +
+            '**Examples:**\n' +
+            '• `John Doe` (name only)\n' +
+            '• `John Doe | john@example.com` (name + email)\n' +
+            '• `John Doe | john@example.com | Company ABC | Project X` (with custom fields)\n' +
+            '• Type `skip` to proceed without client details');
 
         const filter = m => m.author.id === message.author.id;
         const collector = message.channel.createMessageCollector({ filter, time: 60000, max: 1 });
 
         collector.on('collect', async (m) => {
-            const details = m.content.split('|').map(s => s.trim());
-            if (details.length !== 2) {
-                await message.reply('❌ Invalid format. Please use: `<client_name> | <client_email>`');
-                return;
+            let clientName = null;
+            let clientEmail = null;
+            let customFields = [];
+
+            // Handle skip option
+            if (m.content.toLowerCase().trim() === 'skip') {
+                clientName = 'Not specified';
+                clientEmail = null;
+            } else {
+                const details = m.content.split('|').map(s => s.trim()).filter(s => s.length > 0);
+
+                if (details.length === 0) {
+                    await message.reply('❌ Please provide at least a client name or type `skip`');
+                    return;
+                }
+
+                // First field is always client name
+                clientName = details[0] || 'Not specified';
+
+                // Second field is email if it contains @ symbol, otherwise it's a custom field
+                if (details.length > 1) {
+                    if (details[1].includes('@')) {
+                        clientEmail = details[1];
+                        customFields = details.slice(2); // Everything after email
+                    } else {
+                        clientEmail = null;
+                        customFields = details.slice(1); // Everything after name
+                    }
+                }
             }
 
-            const [clientName, clientEmail] = details;
+            try {
+                // Create invoice
+                const nwc = new NWCService(user.nwc_url);
+                await nwc.connect();
 
-            // Create invoice
-            const nwc = new NWCService(user.nwc_url);
-            await nwc.connect();
+                const lightningInvoice = await nwc.createInvoice(amount, description);
+                const paymentHash = lightningInvoice.split(':')[1]?.substring(0, 64);
 
-            const lightningInvoice = await nwc.createInvoice(amount, description);
-            const paymentHash = lightningInvoice.split(':')[1]?.substring(0, 64);
+                const invoice = {
+                    id: uuidv4(),
+                    userId: user.id,
+                    amount,
+                    description,
+                    clientName,
+                    clientEmail,
+                    lightningInvoice,
+                    paymentHash
+                };
 
-            const invoice = {
-                id: uuidv4(),
-                userId: user.id,
-                amount,
-                description,
-                clientName,
-                clientEmail,
-                lightningInvoice,
-                paymentHash
-            };
+                await db.createInvoice(invoice);
+                await nwc.disconnect();
 
-            await db.createInvoice(invoice);
-            await nwc.disconnect();
+                // Create embed
+                const embed = new EmbedBuilder()
+                    .setColor(0x00FF00)
+                    .setTitle('✅ Invoice Created!')
+                    .addFields(
+                        { name: 'Invoice ID', value: invoice.id, inline: true },
+                        { name: 'Amount', value: `${amount} sats`, inline: true },
+                        { name: 'Description', value: description },
+                        { name: 'Client', value: clientName },
+                        { name: 'Lightning Invoice', value: `\`\`\`${lightningInvoice}\`\`\`` }
+                    )
+                    .setTimestamp();
 
-            // Create embed
-            const embed = new EmbedBuilder()
-                .setColor(0x00FF00)
-                .setTitle('✅ Invoice Created!')
-                .addFields(
-                    { name: 'Invoice ID', value: invoice.id, inline: true },
-                    { name: 'Amount', value: `${amount} sats`, inline: true },
-                    { name: 'Description', value: description },
-                    { name: 'Client', value: clientName },
-                    { name: 'Lightning Invoice', value: `\`\`\`${lightningInvoice}\`\`\`` }
-                )
-                .setTimestamp();
+                await message.reply({ embeds: [embed] });
 
-            await message.reply({ embeds: [embed] });
+                // Generate and send PDF
+                const pdfPath = await PDFService.generateInvoicePDF({
+                    ...invoice,
+                    created_at: new Date().toISOString(),
+                    status: 'pending'
+                });
 
-            // Generate and send PDF
-            const pdfPath = await PDFService.generateInvoicePDF({
-                ...invoice,
-                created_at: new Date().toISOString(),
-                status: 'pending'
-            });
+                const attachment = new AttachmentBuilder(pdfPath, { name: `invoice-${invoice.id}.pdf` });
+                await message.reply({ content: 'Invoice PDF - Share with your client', files: [attachment] });
 
-            const attachment = new AttachmentBuilder(pdfPath, { name: `invoice-${invoice.id}.pdf` });
-            await message.reply({ content: 'Invoice PDF - Share with your client', files: [attachment] });
-
-            // Cleanup
-            PDFService.cleanup(pdfPath);
+                // Cleanup
+                PDFService.cleanup(pdfPath);
+            } catch (error) {
+                client.logger.error('Invoice creation error:', error);
+                await message.reply('❌ Failed to create invoice. Please try again.');
+            }
         });
 
         collector.on('end', collected => {
@@ -191,7 +204,8 @@ async function handleNew(message, args) {
             }
         });
     } catch (error) {
-        await message.reply('❌ Failed to create invoice. Please try again.');
+        client.logger.error('New command error:', error);
+        return message.reply('❌ Failed to create invoice. Please try again.');
     }
 }
 
@@ -201,15 +215,13 @@ async function handleInvoices(message) {
     try {
         const user = await db.getUser('discord', userId);
         if (!user) {
-            await message.reply('❌ Please start the bot first with `/start`');
-            return;
+            return message.reply('❌ Please start the bot first with `/start`');
         }
 
         const invoices = await db.getUserInvoices(user.id);
 
         if (invoices.length === 0) {
-            await message.reply('No invoices found. Create your first invoice with `/new` command.');
-            return;
+            return message.reply('No invoices found. Create your first invoice with `/new` command.');
         }
 
         const embed = new EmbedBuilder()
@@ -226,9 +238,10 @@ async function handleInvoices(message) {
             });
         });
 
-        await message.reply({ embeds: [embed] });
+        return message.reply({ embeds: [embed] });
     } catch (error) {
-        await message.reply('❌ Failed to fetch invoices.');
+        client.logger.error('Invoices command error:', error);
+        return message.reply('❌ Failed to fetch invoices.');
     }
 }
 
@@ -238,8 +251,7 @@ async function handleStats(message) {
     try {
         const user = await db.getUser('discord', userId);
         if (!user) {
-            await message.reply('❌ Please start the bot first with `/start`');
-            return;
+            return message.reply('❌ Please start the bot first with `/start`');
         }
 
         const stats = await db.getUserStats(user.id);
@@ -255,9 +267,10 @@ async function handleStats(message) {
             )
             .setTimestamp();
 
-        await message.reply({ embeds: [embed] });
+        return message.reply({ embeds: [embed] });
     } catch (error) {
-        await message.reply('❌ Failed to fetch statistics.');
+        client.logger.error('Stats command error:', error);
+        return message.reply('❌ Failed to fetch statistics.');
     }
 }
 
@@ -274,9 +287,55 @@ async function handleHelp(message) {
         .setFooter({ text: 'Need help? Contact support' })
         .setTimestamp();
 
-    await message.reply({ embeds: [embed] });
+    return message.reply({ embeds: [embed] });
 }
 
+// ===== MESSAGE COMMAND HANDLING =====
+client.on('messageCreate', async (message) => {
+    if (message.author.bot) return;
+    if (!message.content.startsWith('/')) return;
+
+    const args = message.content.slice(1).trim().split(/ +/);
+    const command = args.shift().toLowerCase();
+
+    try {
+        switch (command) {
+            case 'start':
+                await handleStart(message);
+                break;
+            case 'connect':
+                await handleConnect(message, args);
+                break;
+            case 'new':
+                await handleNew(message, args);
+                break;
+            case 'invoices':
+                await handleInvoices(message);
+                break;
+            case 'stats':
+                await handleStats(message);
+                break;
+            case 'help':
+                await handleHelp(message);
+                break;
+            default:
+                await message.reply('❌ Unknown command. Use `/help` to see available commands.');
+                break;
+        }
+    } catch (error) {
+        client.logger.error('Command execution error:', error);
+        await message.reply('❌ An error occurred while processing your command.');
+    }
+});
+
+// ===== ERROR HANDLING =====
+client.on('error', (error) => {
+    console.error('Discord client error:', error);
+});
+
+process.on('unhandledRejection', (error) => {
+    console.error('Unhandled promise rejection:', error);
+});
+
+// ===== START BOT =====
 client.login(process.env.DISCORD_BOT_TOKEN);
-
-

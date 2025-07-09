@@ -1,9 +1,14 @@
-const sqlite3 = require('sqlite3').verbose();
-const path = require('path');
+import sqlite3 from 'sqlite3';
+import { dirname, join } from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const { verbose } = sqlite3;
+const sqlite = verbose();
 
 class Database {
     constructor() {
-        this.db = new sqlite3.Database(process.env.DATABASE_PATH || './quickvoicy.db');
+        this.db = new sqlite.Database(process.env.DATABASE_PATH || join(__dirname, 'quickvoicy.db'));
         this.init();
     }
 
@@ -174,4 +179,4 @@ class Database {
     }
 }
 
-module.exports = new Database();
+export default new Database();

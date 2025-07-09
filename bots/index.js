@@ -1,21 +1,22 @@
-require('dotenv').config();
-const { spawn } = require('child_process');
+import 'dotenv/config';
+import { spawn } from 'child_process';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 console.log('Starting Quickvoicy Bots...');
 
-// Start Telegram bot
-const telegramBot = spawn('node', ['telegram-bot.js'], {
+const telegramBot = spawn('node', [join(__dirname, 'telegram-bot.js')], {
     stdio: 'inherit',
     shell: true
 });
 
-// Start Discord bot
-const discordBot = spawn('node', ['discord-bot.js'], {
+const discordBot = spawn('node', [join(__dirname, 'discord-bot.js')], {
     stdio: 'inherit',
     shell: true
 });
 
-// Handle process termination
 process.on('SIGINT', () => {
     console.log('\nShutting down bots...');
     telegramBot.kill();
